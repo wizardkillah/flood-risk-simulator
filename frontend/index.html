@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simulador de crecidas — Región de Coquimbo (prototipo)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/";</script>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/Cesium.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link href="css/style.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="banner">
+    Prototipo cartográfico. NO es una herramienta validada para decisiones de evacuación.
+  </div>
+  <div id="floodPanel">
+    <div id="floodPanelHeader">Estimación de crecida (no validada)</div>
+    <div id="floodPanelBody">Cargando lluvia de las últimas 24h…</div>
+    <button id="refreshBtn">Actualizar según lluvia actual</button>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Nivel manual</div>
+      <div id="waterPresets">
+        <button class="presetBtn" data-level="0.5">Caudal bajo</button>
+        <button class="presetBtn" data-level="2">Alerta amarilla</button>
+        <button class="presetBtn" data-level="6">Crecida mayor</button>
+      </div>
+      <div class="sliderRow">
+        <label for="waterSlider">Nivel de agua</label>
+        <input type="range" id="waterSlider" min="0" max="25" step="0.1" value="0" />
+        <span id="waterSliderOut">0.0 m</span>
+      </div>
+    </div>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Simular lluvia (mm en 24h)</div>
+      <div class="sliderRow">
+        <label for="rainSimSlider">mm</label>
+        <input type="range" id="rainSimSlider" min="0" max="300" step="5" value="0" />
+        <span id="rainSimOut">0 mm</span>
+      </div>
+    </div>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Pronóstico 7 días (acumulado)</div>
+      <div id="forecastDays">Cargando pronóstico…</div>
+    </div>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Dibujar río (experimental)</div>
+      <p class="hint">Clic sobre el terreno 3D para agregar puntos, doble clic para terminar. El trazo sigue el relieve real y se engrosa con la lluvia simulada.</p>
+      <div id="drawRiverControls">
+        <button id="drawRiverBtn" class="drawBtn">✏️ Dibujar río</button>
+        <button id="clearRiverBtn" class="drawBtn">🗑️ Borrar</button>
+      </div>
+      <button id="viewDrawnReliefBtn" class="drawBtn wide" disabled>🏔️ Ver relieve 3D y simular crecida</button>
+    </div>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Asesor IA (Claude)</div>
+      <button id="aiAnalyzeBtn">🤖 Generar análisis de riesgo</button>
+      <div id="aiAnalysisBody"></div>
+    </div>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Clima en vivo (satelital)</div>
+      <div id="weatherToggles">
+        <label title="Imagen infrarroja del satélite (RainViewer), refresco 10min — composite estilo Meteored"><input type="checkbox" id="toggleSat" /> 🛰️ Nubes satelitales (IR)</label>
+        <label title="Partículas animadas de viento a 10m (Open-Meteo), estilo Meteored/nullschool"><input type="checkbox" id="toggleWind" /> 💨 Viento animado (partículas)</label>
+      </div>
+      <div class="sliderRow" id="weatherOpacityRow" style="display:none">
+        <label for="weatherOpacity">Opacidad nubes</label>
+        <input type="range" id="weatherOpacity" min="0" max="1" step="0.05" value="0.8" />
+        <span id="weatherOpacityOut">80%</span>
+      </div>
+      <div class="sliderRow" id="satTimeRow" style="display:none">
+        <label for="satTime">Tiempo</label>
+        <input type="range" id="satTime" min="0" max="12" step="1" value="12" />
+        <span id="satTimeOut">ahora</span>
+      </div>
+      <p class="hint" id="weatherHint" style="display:none">
+        Satélite cada 10min. Tiles PNG con transparencia drapeados sobre el
+        terreno 3D — al inclinar la cámara, las nubes siguen la esfera.
+      </p>
+    </div>
+
+    <div class="panelSection">
+      <div class="panelSectionTitle">Capas</div>
+      <p class="hint">Todas las capas empiezan apagadas. Activá las que necesites.</p>
+      <div id="layerToggles">
+        <label><input type="checkbox" id="toggleSituacion" /> 🔴 Emergencia actual (prensa)</label>
+        <label><input type="checkbox" id="togglePlaces" /> Comunidades en riesgo</label>
+        <label><input type="checkbox" id="toggleFlood" /> Mancha de inundación</label>
+        <label><input type="checkbox" id="toggleWaterways" /> Ríos y esteros permanentes</label>
+        <label title="Se carga la primera vez que la activás — puede tardar unos segundos"><input type="checkbox" id="toggleQuebradas" /> Quebradas de activación rara <span class="lazyTag">bajo demanda</span></label>
+        <label title="Se carga bajo demanda"><input type="checkbox" id="toggleConfluencias" /> Descargas quebrada→río <span class="lazyTag">bajo demanda</span></label>
+        <label title="Se carga bajo demanda"><input type="checkbox" id="toggleCrossings" /> Badenes <span class="dotBaden"></span> y pasos a nivel <span class="dotPaso"></span> <span class="lazyTag">bajo demanda</span></label>
+        <label title="Se carga bajo demanda"><input type="checkbox" id="toggleRiver" /> Red derivada del DEM <span class="lazyTag">bajo demanda</span></label>
+        <label title="Se carga bajo demanda"><input type="checkbox" id="toggleSubbasins" /> Sub-cuencas <span class="lazyTag">bajo demanda</span></label>
+        <label><input type="checkbox" id="toggleReservoirs" /> Embalses</label>
+        <label><input type="checkbox" id="toggleRainfall" /> Puntos de lluvia</label>
+        <label title="406 depósitos de relaves de SERNAGEOMIN. Se colorean por riesgo geométrico (cercanía a cauce). Al subir el nivel del río o simular lluvia fuerte, los relaves cercanos vierten partículas naranja aguas abajo."><input type="checkbox" id="toggleRelaves" /> ☣️ Relaves mineros <span class="lazyTag">bajo demanda</span></label>
+      </div>
+    </div>
+  </div>
+  <div id="cesiumContainer"></div>
+  <canvas id="windCanvas"></canvas>
+  <canvas id="relavesCanvas"></canvas>
+
+  <button id="chatToggle" title="Abrir asistente conversacional">💬 Preguntar al asistente</button>
+  <div id="chatPanel">
+    <div id="chatHeader">
+      <span>💬 Asistente del simulador</span>
+      <button id="chatClose" title="Cerrar">✕</button>
+    </div>
+    <div id="chatMessages">
+      <div class="chatMsg bot">
+        Hola. Puedo simular escenarios y explorar el mapa por vos. Probá con:
+        <ul class="chatSuggest">
+          <li data-q="¿Qué pasa si llueven 80mm en 24h?">¿Qué pasa si llueven 80mm en 24h?</li>
+          <li data-q="Volá a Ovalle y mostrame el terreno cerca del río">Volá a Ovalle y mostrame el terreno cerca del río</li>
+          <li data-q="Simulá el peor escenario del pronóstico de 7 días">Simulá el peor escenario del pronóstico de 7 días</li>
+          <li data-q="¿Cuál es la situación actual de emergencia?">¿Cuál es la situación actual de emergencia?</li>
+        </ul>
+        <p class="chatDisclaimer">Prototipo educativo. NO usar para decisiones de evacuación.</p>
+      </div>
+    </div>
+    <form id="chatForm">
+      <textarea id="chatInput" rows="2" placeholder="Escribí tu pregunta y presioná Enter…" maxlength="2000"></textarea>
+      <button type="submit" id="chatSend">Enviar</button>
+    </form>
+  </div>
+
+  <div id="riverModalOverlay">
+    <div id="riverModal">
+      <button id="riverModalClose">✕</button>
+      <h2 id="riverModalTitle">Corte de terreno — Río Limarí</h2>
+      <p id="riverModalSubtitle">Relieve real del DEM con imagería satelital, en un radio de ~1.5km del punto seleccionado. Arrastra para rotar, rueda del mouse para acercar.</p>
+
+      <div id="riverModalPresets">
+        <button class="presetBtn" data-level="0.5">Caudal bajo</button>
+        <button class="presetBtn" data-level="2">Alerta amarilla</button>
+        <button class="presetBtn" data-level="6">Crecida mayor</button>
+      </div>
+      <div class="sliderRow" id="riverModalSliderRow">
+        <label for="riverWaterSlider">Nivel de agua</label>
+        <input type="range" id="riverWaterSlider" min="0" max="20" step="0.1" value="1" />
+        <span id="riverWaterOut">1.0 m</span>
+      </div>
+
+      <div id="riverModalStats">
+        <div class="statBox">
+          <p class="statLabel">Área inundada (parche local)</p>
+          <p class="statValue" id="riverFloodPct">0%</p>
+        </div>
+        <div class="statBox">
+          <p class="statLabel">Estado</p>
+          <p class="statValue" id="riverFloodStatus">Normal</p>
+        </div>
+      </div>
+
+      <div id="riverCanvasWrap"></div>
+      <p id="riverModalNote">
+        Terreno real (DEM Copernicus GLO-30). La estimación de inundación es gruesa y local a este
+        parche — no usa el modelo HAND completo de la cuenca. NO usar para decisiones de evacuación.
+      </p>
+    </div>
+  </div>
+
+  <script src="js/app.js?v=29"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Entorno
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secretos
+.env
+
+# ==========================================================
+# Datos pesados (>1.5 GB): DEM, cuencas, tiles de terreno.
+# Se regeneran con los scripts de scripts/ (01..11).
+# ==========================================================
+data/
+!data/markers.json
+!data/**/.gitkeep
+
+# Respaldo del historial git anterior
+.git.respaldo-antes-de-github/
+
+# Sistema
+.DS_Store
+Thumbs.db

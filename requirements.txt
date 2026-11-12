@@ -1,0 +1,11 @@
+rasterio
+geopandas
+numpy
+requests
+python-dotenv
+fastapi
+uvicorn[standard]
+pymartini
+quantized-mesh-encoder
+pysheds
+anthropic

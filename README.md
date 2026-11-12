@@ -1,5 +1,7 @@
 # Simulador de crecidas — Región de Coquimbo (prototipo)
 
+[![CI](https://github.com/wizardkillah/flood-risk-simulator/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wizardkillah/flood-risk-simulator/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Base cartográfica: terreno real + imagería satelital de **toda la Región de
 Coquimbo, Chile** (cuencas de Elqui, Limarí y Choapa más la franja costera)
 en un mapa 3D interactivo, con la red hídrica real, quebradas de activación

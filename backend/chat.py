@@ -52,7 +52,22 @@ _rate_lock = threading.Lock()
 
 # Serializa por-IP: dos preguntas simultáneas de la misma pestaña (doble
 # envío) no gatillan dos loops pagados en paralelo.
-_ip_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_ip_locks: dict[str, threading.Lock] = {}
+_MAX_TRACKED = 10_000
+# Tiempo máximo de una llamada al modelo: sin esto una conexión colgada retiene
+# el hilo y el candado de esa IP durante los 10 min por defecto del SDK.
+CLIENT_TIMEOUT_S = 60.0
+
+
+def _lock_for(ip: str) -> threading.Lock:
+    with _rate_lock:
+        lock = _ip_locks.get(ip)
+        if lock is None:
+            if len(_ip_locks) > _MAX_TRACKED:      # solo se descartan los candados libres
+                for k in [k for k, v in _ip_locks.items() if not v.locked()]:
+                    del _ip_locks[k]
+            lock = _ip_locks[ip] = threading.Lock()
+        return lock
 
 
 SYSTEM_PROMPT = """Eres el asistente conversacional de un prototipo de simulador de \
@@ -501,6 +516,9 @@ def _check_rate_limit(ip: str) -> tuple[bool, float]:
             retry_after = RATE_LIMIT_WINDOW_S - (now - q[0])
             return False, max(1.0, retry_after)
         q.append(now)
+        if len(_rate_state) > _MAX_TRACKED:        # IPs de una sola visita nunca vacían su cola
+            for k in [k for k, v in _rate_state.items() if not v or now - v[-1] > RATE_LIMIT_WINDOW_S]:
+                del _rate_state[k]
     return True, 0.0
 
 
@@ -540,7 +558,7 @@ def chat(user_message: str, history: list[dict], ip: str) -> dict:
             "al archivo .env (ANTHROPIC_API_KEY=sk-ant-...) y reinicia el servidor."
         )
 
-    with _ip_locks[ip]:
+    with _lock_for(ip):
         return _chat_locked(user_message.strip(), _clean_history(history))
 
 
@@ -549,7 +567,7 @@ class RateLimitError(Exception):
 
 
 def _chat_locked(user_message: str, history: list[dict]) -> dict:
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=CLIENT_TIMEOUT_S, max_retries=1)
     messages: list[dict] = list(history) + [{"role": "user", "content": user_message}]
 
     actions: list[dict] = []

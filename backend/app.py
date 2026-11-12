@@ -49,8 +49,8 @@ FORCE_HTTPS = os.environ.get("FORCE_HTTPS") == "1"   # detrás de un proxy TLS (
 
 CSP = (
     "default-src 'self'; "
-    "script-src 'self' https://cesium.com https://cdn.jsdelivr.net https://unpkg.com; "
-    "style-src 'self' 'unsafe-inline' https://cesium.com https://cdn.jsdelivr.net https://unpkg.com; "
+    "script-src 'self' https://cesium.com https://cdn.jsdelivr.net 'unsafe-eval'; "
+    "style-src 'self' 'unsafe-inline' https://cesium.com https://cdn.jsdelivr.net; "
     "img-src 'self' data: blob: https:; "
     "connect-src 'self' https://cesium.com https://*.cesium.com https://*.tile.openstreetmap.org https:; "
     "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
@@ -74,6 +74,21 @@ _hits: dict[tuple[str, str], deque] = defaultdict(deque)
 _hits_lock = threading.Lock()
 
 
+_MAX_TRACKED = 10_000
+
+
+def _prune_hits(now: float) -> None:
+    """Quita las claves sin actividad dentro de la ventana más larga.
+
+    Una IP que consulta una sola vez nunca vacía su cola (solo se vacía al
+    volver a consultar), así que hay que mirar la marca de tiempo más reciente.
+    Debe llamarse con _hits_lock tomado.
+    """
+    horizon = max(window for _, window in _LIMITS.values())
+    for k in [k for k, q in _hits.items() if not q or now - q[-1] > horizon]:
+        del _hits[k]
+
+
 def _group(path: str) -> str:
     if path in ("/api/ai_analysis", "/api/chat"):
         return "ai"
@@ -83,11 +98,23 @@ def _group(path: str) -> str:
 
 
 def _client_ip(request: Request) -> str:
-    # Solo se confía en X-Forwarded-For si se declara que hay un proxy delante.
+    """IP del cliente para el rate limit.
+
+    Solo se confía en X-Forwarded-For si se declara que hay un proxy delante
+    (TRUST_PROXY=1). Cada proxy AÑADE al final la IP que ve; lo que viene a la
+    izquierda lo escribe el cliente y se puede falsificar. Por eso se toma la
+    entrada contada desde la DERECHA: TRUSTED_PROXY_HOPS=1 con un ALB,
+    2 con CloudFront + ALB. Si la cabecera trae menos entradas de las
+    esperadas, se usa la IP del socket.
+    """
     if os.environ.get("TRUST_PROXY") == "1":
-        fwd = request.headers.get("x-forwarded-for", "")
-        if fwd:
-            return fwd.split(",")[0].strip()
+        try:
+            hops = max(1, int(os.environ.get("TRUSTED_PROXY_HOPS", "1")))
+        except ValueError:
+            hops = 1
+        parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+        if len(parts) >= hops:
+            return parts[-hops]
     return request.client.host if request.client else "unknown"
 
 
@@ -101,9 +128,8 @@ def _allowed(ip: str, group: str) -> tuple[bool, int]:
         if len(q) >= limit:
             return False, int(window - (now - q[0])) + 1
         q.append(now)
-        if len(_hits) > 10_000:            # evita crecimiento sin límite
-            for k in [k for k, v in _hits.items() if not v][:5_000]:
-                _hits.pop(k, None)
+        if len(_hits) > _MAX_TRACKED:      # evita crecimiento sin límite
+            _prune_hits(now)
     return True, 0
 
 

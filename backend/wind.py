@@ -16,6 +16,7 @@ puntos × 4h, no queremos golpear la API a cada toggle.
 """
 
 import math
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -33,6 +34,18 @@ BBOX = {"north": -28.8, "south": -32.6, "east": -69.5, "west": -72.5}
 CACHE_TTL_S = 30 * 60
 
 _cache: dict = {"at": 0.0, "data": None}
+# `refresh=true` lo puede mandar cualquiera: piso entre llamadas reales a Open-Meteo.
+FORCE_MIN_INTERVAL_S = 60
+_fetch_lock = threading.Lock()
+
+
+def _fresh(force: bool):
+    if _cache["data"] is None:
+        return None
+    age = time.time() - _cache["at"]
+    if age < FORCE_MIN_INTERVAL_S or (not force and age < CACHE_TTL_S):
+        return _cache["data"]
+    return None
 
 
 def _build_grid() -> list[tuple[float, float]]:
@@ -54,10 +67,18 @@ def _speed_dir_to_uv(speed_ms: float, dir_deg_from: float) -> tuple[float, float
 
 
 def fetch_wind_grid(force: bool = False) -> dict:
-    now = time.time()
-    if not force and _cache["data"] is not None and (now - _cache["at"]) < CACHE_TTL_S:
-        return _cache["data"]
+    cached = _fresh(force)
+    if cached is not None:
+        return cached
+    with _fetch_lock:
+        cached = _fresh(force)
+        if cached is not None:
+            return cached
+        return _fetch_wind_grid()
 
+
+def _fetch_wind_grid() -> dict:
+    now = time.time()
     grid = _build_grid()
     lats = ",".join(f"{lat:.4f}" for lat, _ in grid)
     lons = ",".join(f"{lon:.4f}" for _, lon in grid)

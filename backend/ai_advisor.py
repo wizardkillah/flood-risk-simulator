@@ -40,6 +40,9 @@ CACHE_TTL_S = 15 * 60
 # Piso entre llamadas reales al modelo aunque venga refresh=true: cada análisis
 # cuesta dinero — esto acota el peor caso (clic compulsivo / bucle) a 1/min.
 FORCE_MIN_INTERVAL_S = 60
+# El análisis razona sobre todo el contexto (30-90 s); se corta a los 3 min para
+# no retener el candado global si la conexión se cuelga.
+CLIENT_TIMEOUT_S = 180.0
 
 _cache: dict = {"at": 0.0, "result": None}
 # Serializa las llamadas: dos requests simultáneas (doble clic, dos pestañas)
@@ -285,7 +288,7 @@ def _analyze_locked(now: float) -> dict:
         )
 
     context = _build_context()
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=CLIENT_TIMEOUT_S, max_retries=1)
     response = client.messages.create(
         model=MODEL,
         max_tokens=16000,

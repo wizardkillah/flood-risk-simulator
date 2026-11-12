@@ -4,10 +4,15 @@
   <meta charset="UTF-8" />
   <title>Simulador de crecidas — Región de Coquimbo (prototipo)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script>window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/";</script>
-  <script src="https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/Cesium.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Sin scripts inline y sin cdnjs: la CSP (backend/app.py) solo permite self y jsdelivr.
+       Las versiones van fijadas y con SRI; si las cambias, recalcula el hash. -->
+  <script src="js/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/Cesium.js"
+          integrity="sha384-6pySA8bzGAn2+aYh8KWmvzl5DRnspbScFYUbrFcu2ayckTxx8gyn+/WNvNbPM9iG" crossorigin="anonymous"></script>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@1.143.0/Build/Cesium/Widgets/widgets.css" rel="stylesheet"
+        integrity="sha384-ghEeMdcWWzRv/BPeUcX835vcKDGrxvROXisl/Btpv3GeekBUXTSPVcFJpI1Tcrgp" crossorigin="anonymous" />
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"
+          integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu" crossorigin="anonymous"></script>
   <link href="css/style.css" rel="stylesheet" />
 </head>
 <body>

@@ -9,6 +9,7 @@ aproximación razonable para un prototipo, no un reemplazo de estaciones
 pluviométricas oficiales de la DGA.
 """
 
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -24,6 +25,20 @@ BBOX = {"north": -29.0, "south": -32.35, "east": -69.75, "west": -71.80}
 
 _cache = {"timestamp": 0, "data": None}
 CACHE_TTL_SECONDS = 15 * 60
+# `refresh=true` lo puede mandar cualquiera: ni siquiera forzando se vuelve a
+# llamar a Open-Meteo antes de este piso (cuota gratuita compartida por todos).
+FORCE_MIN_INTERVAL_SECONDS = 60
+_fetch_lock = threading.Lock()
+
+
+def _fresh(cache: dict, force: bool):
+    """Devuelve el dato en caché si sigue vigente, o None si hay que pedirlo."""
+    if cache["data"] is None:
+        return None
+    age = time.time() - cache["timestamp"]
+    if age < FORCE_MIN_INTERVAL_SECONDS or (not force and age < CACHE_TTL_SECONDS):
+        return cache["data"]
+    return None
 
 
 def _build_grid():
@@ -40,9 +55,18 @@ def _build_grid():
 
 def fetch_rainfall_24h(force: bool = False) -> dict:
     """Devuelve {points: [{lat, lon, mm_24h}], basin_average_mm, fetched_at}."""
+    cached = _fresh(_cache, force)
+    if cached is not None:
+        return cached
+    with _fetch_lock:                      # una sola petición a Open-Meteo aunque lleguen varias a la vez
+        cached = _fresh(_cache, force)
+        if cached is not None:
+            return cached
+        return _fetch_rainfall_24h()
+
+
+def _fetch_rainfall_24h() -> dict:
     now = time.time()
-    if not force and _cache["data"] is not None and (now - _cache["timestamp"]) < CACHE_TTL_SECONDS:
-        return _cache["data"]
 
     grid = _build_grid()
     lats = ",".join(f"{lat:.4f}" for lat, _ in grid)
@@ -101,10 +125,18 @@ def fetch_forecast_7d(force: bool = False) -> dict:
     no hay forma de "medir" lluvia futura — la incertidumbre crece mucho día
     a día, especialmente después de 3-4 días. Tratar como ilustrativo.
     """
-    now = time.time()
-    if not force and _forecast_cache["data"] is not None and (now - _forecast_cache["timestamp"]) < CACHE_TTL_SECONDS:
-        return _forecast_cache["data"]
+    cached = _fresh(_forecast_cache, force)
+    if cached is not None:
+        return cached
+    with _fetch_lock:
+        cached = _fresh(_forecast_cache, force)
+        if cached is not None:
+            return cached
+        return _fetch_forecast_7d()
 
+
+def _fetch_forecast_7d() -> dict:
+    now = time.time()
     grid = _build_grid()
     lats = ",".join(f"{lat:.4f}" for lat, _ in grid)
     lons = ",".join(f"{lon:.4f}" for _, lon in grid)
